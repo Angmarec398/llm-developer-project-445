@@ -46,8 +46,10 @@ async def open_session(login: str) -> Session:
         raise KeyError(f"неизвестный пользователь: {login}")
 
     tokens = Tokens(login)
-    # TODO(контракты): добавить "actions" — сессия подключится к action-MCP.
-    pool = McpPool(tokens, resource_keys=("crm", "billing", "kb"))
+    # С этого шага сессия подключается и к action-MCP: без запущенного
+    # make actions open_session не откроется.
+    pool = McpPool(tokens, resource_keys=("crm", "billing", "kb", "actions"))
+
     await pool.connect()
 
     session = Session(login=login, user=user, tokens=tokens, pool=pool)

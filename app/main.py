@@ -8,7 +8,7 @@
 
 События SSE хода: plan / card / reply / error / done.
 
-TODO(контракты): POST /api/cards/{pending_id}/decision — кнопка карточки:
+POST /api/cards/{pending_id}/decision — кнопка карточки:
   «да» → orchestrator.execute_pending, «нет» → отмена.
 """
 from __future__ import annotations
@@ -23,7 +23,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
-from app import orchestrator, sessions
+from app import cards, orchestrator, sessions
 from core import config
 
 
@@ -121,3 +121,29 @@ async def chat(request: ChatRequest) -> Response:
             await turn_task
 
     return StreamingResponse(stream(), media_type="text/event-stream")
+
+class CardDecisionRequest(BaseModel):
+    """Тело POST /api/cards/{pending_id}/decision — ответ кнопкой карточки."""
+
+    session_id: str
+    answer: str  # "yes" | "no"
+
+
+@app.post("/api/cards/{pending_id}/decision")
+async def card_decision(pending_id: str, request: CardDecisionRequest) -> JSONResponse:
+    """Кнопка карточки: «да» → исполнение кода оркестратора, «нет» → отмена."""
+    session = sessions.get(request.session_id)
+    if session is None:
+        return JSONResponse(status_code=400, content={"error": "неизвестная сессия"})
+    card = cards.active(session)
+    if card is None or card.pending_id != pending_id:
+        return JSONResponse(status_code=400, content={"error": "карточка не найдена или истекла"})
+    if request.answer == "yes":
+        text = await orchestrator.execute_pending(session, card)
+    elif request.answer == "no":
+        cards.settle(session, card, "rejected")
+        text = "Хорошо, отменяю — изменения не внесены."
+    else:
+        return JSONResponse(status_code=400, content={"error": "answer: yes|no"})
+    return JSONResponse({"text": text})
+
